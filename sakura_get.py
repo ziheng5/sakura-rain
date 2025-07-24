@@ -1,6 +1,7 @@
 from PySide6 import QtWidgets, QtGui, QtCore
 from PySide6.QtCore import Qt, QSize, QRect, QDateTime, QTimer
 from PySide6.QtGui import QPainter, QPaintEvent, QIcon, QFont, QMouseEvent, QBrush, QPen, QRegion, QColor
+from PySide6.QtCore import QThread, Signal, QObject
 import requests
 import re
 import ffmpeg
@@ -8,10 +9,11 @@ import os
 import time
 from private_widgets import CustomTitleBar, MyDialog
 from page_analysis import get_ep_url
-from sakura_download1 import get_episode
+from sakura_download import DownloadWorker
 
 
 ffmpeg_path = os.path.join(os.path.dirname(__file__), 'ffmpeg.exe')
+
 
 class Sakura_Frame(QtWidgets.QFrame):
     """
@@ -25,7 +27,7 @@ class Sakura_Frame(QtWidgets.QFrame):
         self.path = ''
         self.headers = {
                 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-                'Cookie': 'HWTOKEN=7d4e4f0a188bdc091c7b110582b3c02f3d524f6f61522e51f102fe191a4f864e1121a24925c15a758a27ee44a1554cffda875db4e62d4199f86fd1d4f8a45d3f; HWIDHASH=ae353dd1f9cb1bd2ce10604ee2df1d40; HWPID=4Ph5a75fMTEH48dflTyKQSchgiiHFRuQFgg6B9BzhHw'
+                'Cookie': 'HWTOKEN=7d4e4f0a188bdc091c7b110582b3c02f3d524f6f61522e51f102fe191a4f864e1121a24925c15a758a27ee44a1554cffda875db4e62d4199f86fd1d4f8a45d3f; HWIDHASH=9299b36adfd65542d49a528d08c0c877; HWPID=EgyEb9-1UpWocy42ZYif2L7evaR1K1Ka5GMcXOLbl_E'
                 }
         self.ep_memory = []
         self.ep_name = ''
@@ -83,7 +85,7 @@ class Sakura_Frame(QtWidgets.QFrame):
         download_tip.setStyleSheet('font-family: Microsoft Yahei; font-size: 10pt; font-weight: bold')
         download_layout = QtWidgets.QVBoxLayout()
         self.button0 = QtWidgets.QComboBox()
-        self.button0.addItems(['单集下载', '多集下载'])
+        self.button0.addItems(['单集下载', '？？？'])
         self.button0.setStyleSheet('font-family: Microsoft Yahei; font-size: 10pt; font-weight: bold')
         self.button0.currentIndexChanged.connect(self.choose_mode0)
 
@@ -95,14 +97,14 @@ class Sakura_Frame(QtWidgets.QFrame):
         page1_title = QtWidgets.QLabel('要下载第几集呢...')
         self.page1_input = QtWidgets.QLineEdit()
         self.page1_input.setPlaceholderText('输入一个数字')
-        page1_download_button = QtWidgets.QPushButton('开始下载')
-        page1_download_button.clicked.connect(self.download2)
+        self.page1_download_button = QtWidgets.QPushButton('开始下载')
+        self.page1_download_button.clicked.connect(self.download2)
 
         page1_layout.addSpacing(30)
         page1_layout.addWidget(page1_title)
         page1_layout.addWidget(self.page1_input)
         page1_layout.addSpacing(30)
-        page1_layout.addWidget(page1_download_button)
+        page1_layout.addWidget(self.page1_download_button)
         page1_layout.addSpacing(30)
         self.download_stacked.addWidget(page1)
 
@@ -119,7 +121,6 @@ class Sakura_Frame(QtWidgets.QFrame):
         h0 = h0.toString('yyyy-MM-dd hh:mm:ss ')
         h0 = h0 + '\n【Tips】' + '\n在下番之前，请务必先对番名进行查询，以确保下载可以正常运行\n'
         self.text_output.append(h0)
-
 
         self.process = QtWidgets.QProgressBar()
         self.process.setRange(0, 100)
@@ -318,12 +319,18 @@ class Sakura_Frame(QtWidgets.QFrame):
                 except:
                     h = QDateTime.currentDateTime()
                     h = h.toString('yyyy-MM-dd hh:mm:ss ')
-                    h = h + '\n你输入的似乎不是数字喵～\n'
+                    h = h + '\n出错了喵～\n'
                     self.text_output.append(h)
 
 
     def download2(self):
-        self.process.reset()
+
+        # 禁用按钮防止重复点击
+        self.page1_download_button.setEnabled(False)
+        self.go_home.setEnabled(False)
+        self.search_button.setEnabled(False)
+        self.process.setValue(0)
+
         ep_index = self.page1_input.text()
         if ep_index == '':
             h = QDateTime.currentDateTime()
@@ -338,54 +345,121 @@ class Sakura_Frame(QtWidgets.QFrame):
                 h = h + '\n忘记进行查询了哦～\n'
                 self.text_output.append(h)
             else:
-                try:
-                    # 开始下载
-                    index = int(ep_index)
-                    ep_url = self.ep_memory[index-1]
+                # 开始下载
+                index = int(ep_index)
+                ep_url = self.ep_memory[index-1]
 
-                    h = QDateTime.currentDateTime()
-                    h = h.toString('yyyy-MM-dd hh:mm:ss ')
-                    h = h + '\n正在下载第' + ep_index + '集喵...\n'
-                    self.text_output.append(h)
+                h = QDateTime.currentDateTime()
+                h = h.toString('yyyy-MM-dd hh:mm:ss ')
+                h = h + '\n正在下载第' + ep_index + '集喵...\n'
+                self.text_output.append(h)
 
-                    # ===================
-                    # 获取 mixed.m3u8 文件
-                    html = requests.get(url=ep_url, headers=self.headers).text
-                    pattern = re.compile("dplayer/\?url=(.*?)'")
-                    file_url = pattern.findall(html)[-1]
+                # # ===================
+                # # 获取 mixed.m3u8 文件
+                # html = requests.get(url=ep_url, headers=self.headers).text
+                # pattern = re.compile("dplayer/\?url=(.*?)'")
+                # file_url = pattern.findall(html)[-1]
+                #
+                # index = requests.get(url=file_url, headers=self.headers).text
+                # processed_index = index.split('\n')[-1]
+                # processed_tail = processed_index.replace('mixed.m3u8', '')
+                # processed_file_url = file_url.replace('index.m3u8', processed_index)
+                # real_index = requests.get(url=processed_file_url, headers=self.headers).text
+                # num_lis = real_index.split('\n')
+                # processed_num_lis = [i for i in num_lis if '.ts' in i]
+                # print(processed_num_lis)
+                #
+                # video_length = len(processed_num_lis)
+                #
+                # base_url = file_url[:-10]
+                # full_video = b''
+                # for i in range(video_length):
+                #     piece_url = base_url + processed_tail + processed_num_lis[i]
+                #     print(piece_url)
+                #     piece = requests.get(url=piece_url, headers=self.headers).content
+                #     full_video = full_video + piece
+                #     processed = int(i / video_length * 100)
+                #     self.process.setValue(processed)
+                #
+                # download_path = self.put_path.text() + '/' + self.ep_name + 'ep' + ep_index + '.ts'
+                #
+                # with open(download_path, 'wb') as f:
+                #     f.write(full_video)
+                #     f.close()
 
-                    index = requests.get(url=file_url, headers=self.headers).text
-                    processed_index = index.split('\n')[-1]
-                    processed_file_url = file_url.replace('index.m3u8', processed_index)
-                    real_index = requests.get(url=processed_file_url, headers=self.headers).text
-                    num_lis = real_index.split('\n')
-                    processed_num_lis = [i for i in num_lis if '.ts' in i]
+                # 创建线程和工作对象
+                self.download_thread = QThread()
+                self.worker = DownloadWorker(ep_url, path=self.put_path.text(), ep_name=self.ep_name, ep_index=ep_index)
+                self.worker.moveToThread(self.download_thread)
 
-                    video_length = len(processed_num_lis)
+                # 连接信号
+                self.worker.progress_updated.connect(self.update_progress)
+                self.worker.download_finished.connect(self.on_download_finished)
+                self.worker.error_occurred.connect(self.on_download_error)
 
-                    base_url = file_url[:-10]
-                    full_video = b''
-                    for i in range(video_length):
-                        piece_url = base_url + processed_num_lis[i] + '.ts'
-                        piece = requests.get(url=piece_url, headers=self.headers).content
-                        full_video = full_video + piece
-                        processed = int(i / video_length * 100)
-                        self.process.setValue(processed)
+                # 线程结束时自动清理
+                self.download_thread.finished.connect(self.download_thread.deleteLater)
 
-                    download_path = self.put_path.text() + '/' + self.ep_name + 'ep' + ep_index + '.ts'
+                # 启动线程
+                self.download_thread.started.connect(self.worker.download)
+                self.download_thread.start()
 
-                    with open(download_path, 'wb') as f:
-                        f.write(full_video)
-                        f.close()
 
-                    h = QDateTime.currentDateTime()
-                    h = h.toString('yyyy-MM-dd hh:mm:ss ')
-                    h = h + '\n下载完成喵：{}\n'.format(download_path)
-                    self.text_output.append(h)
 
-                except:
-                    h = QDateTime.currentDateTime()
-                    h = h.toString('yyyy-MM-dd hh:mm:ss ')
-                    h = h + '\n你输入的似乎不是数字喵～\n'
-                    self.text_output.append(h)
-        
+                # except:
+                #     h = QDateTime.currentDateTime()
+                #     h = h.toString('yyyy-MM-dd hh:mm:ss ')
+                #     h = h + '\n出错了喵～\n'
+                #     self.text_output.append(h)
+
+    def update_progress(self, percent):
+        """更新进度条"""
+        self.process.setValue(percent)
+
+    def on_download_error(self, error_msg):
+        """下载错误处理"""
+        h = QDateTime.currentDateTime()
+        h = h.toString('yyyy-MM-dd hh:mm:ss ')
+        h = h + '\n出错了喵～\n'
+        self.text_output.append(h)
+
+        self.page1_download_button.setEnabled(True)
+        self.search_button.setEnabled(True)
+        self.go_home.setEnabled(True)
+        self.cleanup_thread()
+
+    def cleanup_thread(self):
+        """清理线程资源"""
+        if self.download_thread:
+            self.download_thread.quit()
+            self.download_thread.wait()
+            self.download_thread = None
+            self.worker = None
+
+    def stop_download(self):
+        """停止下载"""
+        if self.worker:
+            self.worker.stop()
+        self.cleanup_thread()
+        self.page1_download_button.setEnabled(True)
+        self.search_button.setEnabled(True)
+        self.go_home.setEnabled(True)
+
+    def closeEvent(self, event):
+        """窗口关闭时确保线程停止"""
+        self.stop_download()
+        super().closeEvent(event)
+
+    def on_download_finished(self, file_path):
+        """下载完成处理"""
+        download_path = self.put_path.text() + '/' + self.ep_name + 'ep' + self.page1_input.text() + '.ts'
+        h = QDateTime.currentDateTime()
+        h = h.toString('yyyy-MM-dd hh:mm:ss ')
+        h = h + '\n下载完成喵：{}\n'.format(download_path)
+        self.text_output.append(h)
+
+        print(f"文件已下载到: {file_path}")
+        self.page1_download_button.setEnabled(True)
+        self.go_home.setEnabled(True)
+        self.search_button.setEnabled(True)
+        self.cleanup_thread()
