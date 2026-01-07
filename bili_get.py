@@ -329,9 +329,8 @@ class Bili_Frame(QtWidgets.QFrame):
                         self.process.setValue(3)
                         time.sleep(1)
 
-                        out = ffmpeg.output(video, audio, f'{self.path}/' + title + '.mp4')
+                        out = ffmpeg.output(video, audio, f'{self.path}/{title}.mp4', vcodec='libx264', acodec='aac', video_bitrate='5000k', crf=18)
                         out.run()
-
                         # video_clip = VideoFileClip(f'{self.path}/video.mp4')
                         # audio_clip = AudioFileClip(f'{self.path}/audio.mp3')
                         # print(time.ctime(), "正在合并音视频喵~")
