@@ -9,8 +9,8 @@ from PySide6.QtCore import Qt, QSize, QRect, QDateTime, QTimer
 from PySide6.QtGui import QPainter, QPaintEvent, QIcon, QFont, QMouseEvent, QBrush, QPen, QRegion, QColor, QPixmap
 from qt_material import apply_stylesheet
 import sys
-from bili_get import *
-from sakura_get import Sakura_Frame
+from utils.bili_get import *
+from utils.sakura_get import Sakura_Frame
 
 
 # from sakura_get import *
@@ -38,7 +38,7 @@ class welcome_Window(QtWidgets.QMainWindow):
 
         # 在这里创建 Sakura Rain 的 logo
         image_label = QLabel()
-        pixmap = QPixmap('./logo.png')
+        pixmap = QPixmap('./src/logo.png')
         scaled_pixmap = pixmap.scaled(200, 200)
         image_label.setPixmap(scaled_pixmap)
         image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)

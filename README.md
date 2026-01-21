@@ -2,7 +2,7 @@
 
 Coldrain 自制的多功能小工具箱 🧰
 
-![logo](./logo.png)
+![preview](./src/preview.png)
 
 该工具箱基于 `Python` 实现，目前已基于 `PySide6` 制作出 GUI 界面，以供便捷的图形界面操作（有写终端界面的想法，但是由于时间有限，被鸽掉了 💦）
 
